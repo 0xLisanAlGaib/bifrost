@@ -1,9 +1,14 @@
-"""v1 mock graph: Eth (1) + Base (8453), 9 assets, representative venues.
+"""v1 mock graph: Eth (1) + Base (8453), 17 assets, representative venues.
 
-Assets: ETH, WETH, USDC, USDT, WBTC, DAI, cbBTC, wstETH, cbETH.
+How to add an asset (scales to 50+):
+1. Add `symbol: price_usd` to ASSET_PRICES (nodes appear on both chains).
+2. Add one DEX_PAIRS row per liquid pair (spot rates derive from prices).
+3. Optionally add it to NEW_BRIDGES (absence = no direct bridge; the
+   pathfinder routes via a bridged intermediate — see connectivity test).
 HYPE deferred to v2.
-Prices (USD): ETH/WETH 3000, USDC/USDT/DAI 1, WBTC/cbBTC 65000,
-wstETH 3450, cbETH 3050.
+Prices (USD): ETH/WETH 3000, stables 1, WBTC/cbBTC 65000,
+wstETH 3450, cbETH 3050, weETH 3200, ezETH 3100, rETH 3300,
+LINK 18, AAVE 150, UNI 9.
 """
 from __future__ import annotations
 
@@ -12,20 +17,62 @@ from ..graph import DirectedEdge, Graph, Node
 ETH = 1
 BASE = 8453
 
+ASSET_PRICES: dict[str, float] = {
+    "ETH": 3000.0,
+    "WETH": 3000.0,
+    "USDC": 1.0,
+    "USDT": 1.0,
+    "DAI": 1.0,
+    "WBTC": 65000.0,
+    "cbBTC": 65000.0,
+    "wstETH": 3450.0,
+    "cbETH": 3050.0,
+    "weETH": 3200.0,
+    "ezETH": 3100.0,
+    "rETH": 3300.0,
+    "LINK": 18.0,
+    "AAVE": 150.0,
+    "UNI": 9.0,
+    "USDe": 1.0,
+    "FRAX": 1.0,
+}
+
 PRICES_V1: dict[str, float] = {
-    f"{c}:{s}": p
-    for c in (ETH, BASE)
-    for s, p in {
-        "ETH": 3000.0,
-        "WETH": 3000.0,
-        "USDC": 1.0,
-        "USDT": 1.0,
-        "DAI": 1.0,
-        "WBTC": 65000.0,
-        "cbBTC": 65000.0,
-        "wstETH": 3450.0,
-        "cbETH": 3050.0,
-    }.items()
+    f"{c}:{s}": p for c in (ETH, BASE) for s, p in ASSET_PRICES.items()
+}
+
+_CHAIN_NAME = {ETH: "eth", BASE: "base"}
+# Default per-chain DEX leg params: (gas_usd, latency_sec, risk_score).
+_DEX_DEFAULTS = {ETH: (3.0, 15, 0.05), BASE: (0.10, 3, 0.08)}
+
+# New-asset DEX pairs: (id_prefix, chain, sym_a, sym_b, venue, fee_bps,
+#                      liq_a, liq_b, model). Spots derive from ASSET_PRICES.
+DEX_PAIRS: list[tuple] = [
+    ("uni", ETH, "WETH", "weETH", "uniswapv3-5bps", 5, 20_000, 18_000, "cpmm"),
+    ("uni", ETH, "WETH", "ezETH", "uniswapv3-5bps", 5, 15_000, 14_000, "cpmm"),
+    ("uni", ETH, "WETH", "rETH", "uniswapv3-5bps", 5, 25_000, 22_000, "cpmm"),
+    ("uni30", ETH, "WETH", "LINK", "uniswapv3-30bps", 30, 8_000, 1_300_000, "cpmm"),
+    ("uni30", ETH, "WETH", "AAVE", "uniswapv3-30bps", 30, 6_000, 120_000, "cpmm"),
+    ("uni30", ETH, "WETH", "UNI", "uniswapv3-30bps", 30, 7_000, 2_300_000, "cpmm"),
+    ("curve", ETH, "USDC", "USDe", "curve-stable", 1, 50_000_000, 50_000_000, "stable"),
+    ("curve", ETH, "USDC", "FRAX", "curve-stable", 1, 50_000_000, 50_000_000, "stable"),
+    ("curve", ETH, "FRAX", "DAI", "curve-stable", 1, 30_000_000, 30_000_000, "stable"),
+    ("aero", BASE, "WETH", "weETH", "aerodrome", 5, 9_000, 8_500, "cpmm"),
+    ("aero", BASE, "WETH", "ezETH", "aerodrome", 5, 7_000, 6_800, "cpmm"),
+    ("aero", BASE, "WETH", "rETH", "aerodrome", 5, 9_000, 8_000, "cpmm"),
+    ("aero", BASE, "WETH", "LINK", "aerodrome", 5, 5_000, 800_000, "cpmm"),
+    ("aero", BASE, "WETH", "AAVE", "aerodrome", 5, 4_000, 80_000, "cpmm"),
+    ("aero", BASE, "WETH", "UNI", "aerodrome", 5, 5_000, 1_600_000, "cpmm"),
+    ("aero", BASE, "USDC", "USDe", "aerodrome", 1, 6_000_000, 6_000_000, "stable"),
+    ("aero", BASE, "USDC", "FRAX", "aerodrome", 1, 6_000_000, 6_000_000, "stable"),
+]
+
+# New-asset bridge support: venue -> {symbol: extra_fee_bps}.
+# Symbols absent here (rETH, AAVE, UNI) have NO direct bridge and must route
+# via a bridged intermediate — the connectivity test proves they still resolve.
+NEW_BRIDGES: dict[str, dict[str, float]] = {
+    "across": {"weETH": 2, "LINK": 4, "USDe": 2},
+    "stargate": {"ezETH": 2, "USDe": 2, "FRAX": 2},
 }
 
 
@@ -127,4 +174,17 @@ def build_v1_mock_graph() -> tuple[Graph, dict[str, float]]:
         for sym, extra in (("cbBTC", 4), ("wstETH", 2), ("cbETH", 2)):
             g.add_edge(_e(f"{venue}-eth-base-{sym}", ETH, sym, BASE, sym, "bridge", venue, 1.0, fee + extra, 0, model, 2.0, eta, risk))
             g.add_edge(_e(f"{venue}-base-eth-{sym}", BASE, sym, ETH, sym, "bridge", venue, 1.0, fee + extra + 1, 0, model, 2.0, eta * 1.2, min(1.0, risk + 0.05)))
+
+    # --- Table-driven pairs + bridges (batch 2+; spot rates from ASSET_PRICES) ---
+    for prefix, chain, a, b, venue, fee_bps, liq_a, liq_b, model in DEX_PAIRS:
+        gas, eta, risk = _DEX_DEFAULTS[chain]
+        tag = _CHAIN_NAME[chain]
+        g.add_edge(_e(f"{prefix}-{tag}-{a}-{b}", chain, a, chain, b, "dex", venue, ASSET_PRICES[a] / ASSET_PRICES[b], fee_bps, liq_a, model, gas, eta, risk))
+        g.add_edge(_e(f"{prefix}-{tag}-{b}-{a}", chain, b, chain, a, "dex", venue, ASSET_PRICES[b] / ASSET_PRICES[a], fee_bps, liq_b, model, gas, eta, risk))
+    _venue_params = {v: (fee, eta, risk) for v, fee, eta, risk, _ in bridges}
+    for venue, syms in NEW_BRIDGES.items():
+        fee, eta, risk = _venue_params[venue]
+        for sym, extra in syms.items():
+            g.add_edge(_e(f"{venue}-eth-base-{sym}", ETH, sym, BASE, sym, "bridge", venue, 1.0, fee + extra, 0, "fixed_variable", 2.0, eta, risk))
+            g.add_edge(_e(f"{venue}-base-eth-{sym}", BASE, sym, ETH, sym, "bridge", venue, 1.0, fee + extra + 1, 0, "fixed_variable", 2.0, eta * 1.2, min(1.0, risk + 0.05)))
     return g, dict(PRICES_V1)

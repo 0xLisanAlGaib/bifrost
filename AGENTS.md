@@ -2,7 +2,7 @@
 
 Bifrost is a cross-chain best-route router. Assets are nodes `(chain_id, symbol)`
 in a directed weighted multigraph; swap routes and bridges are directed edges
-(spread means `A->B != B->A`). v1 scope: Ethereum (1) + Base (8453), 9 assets,
+(spread means `A->B != B->A`). v1 scope: Ethereum (1) + Base (8453), 17 assets,
 direct non-custodial execution. See `architecture.mmd` and `tasks/00-overview.md`.
 
 ## Layout
@@ -34,6 +34,6 @@ direct non-custodial execution. See `architecture.mmd` and `tasks/00-overview.md
 - Edge weights are **amount-dependent** `w_e(x)`. Never precompute static weights or use networkx.
 - `quote_edge` is non-decreasing in `x` (FIFO) — that is what makes the modified Dijkstra optimal. Keep it monotone; the `test_quote_edge_monotone_fifo` test guards this.
 - Adapters behind `BaseQuoter.fetch_edges()`; live quoters must degrade to `stale=True` edges when RPC/API is missing.
-- Mock graph changes go in `adapters/registry.py` (nodes, prices, venues together). Dashboard asset lists derive from the graph — no hardcoded asset lists in UI.
+- Mock graph changes go in `adapters/registry.py` (nodes, prices, venues together). To add an asset: `ASSET_PRICES` + one `DEX_PAIRS` row per liquid pair (+ `NEW_BRIDGES` entry only if a bridge supports it — bridgeless assets route via intermediates, guarded by `tests/test_connectivity.py`). Dashboard asset lists derive from the graph — no hardcoded asset lists in UI.
 - `filter_edges(..., hide_native_bridge=True)` by default; the 7-day native bridge drowns layouts.
 - For new skills, load the `skill-creator` skill (`.opencode/skills/skill-creator/SKILL.md`).
