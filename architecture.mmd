@@ -1,0 +1,43 @@
+flowchart TB
+    User[User / dApp] --> API[API Gateway<br/>POST /quote, /route, /execute]
+
+    subgraph Sources[Off-Chain + On-Chain Sources]
+        DEX[DEX Listeners<br/>Uniswap, Curve, Jupiter<br/>RPC + Subgraphs]
+        BRG[Bridge APIs<br/>Across, Stargate, Wormhole, CCIP]
+        ORC[Oracles<br/>Chainlink, Pyth, Gas Oracles]
+    end
+
+    subgraph Ingestion[Ingestion Layer]
+        Q[Quoter Service<br/>spot rate + reserves]
+        LIQ[Liquidity Indexer<br/>depth, TVL, pool state]
+        CACHE[(Redis<br/>live quote cache<br/>TTL = 1 block)]
+    end
+
+    DEX --> Q
+    BRG --> Q
+    ORC --> Q
+    Q --> CACHE
+    DEX --> LIQ
+
+    subgraph Core[Routing Core - In-Memory Graph]
+        GB[Graph Builder<br/>directed multigraph<br/>V=chain:asset]
+        WE[Weight Engine<br/>rate * fee * slippage_x<br/>- gas - risk]
+        PF[Pathfinder<br/>Modified Dijkstra + Yen k-shortest<br/>+ Bellman-Ford arb detect]
+        SIM[Simulator<br/>Tenderly / eth_call<br/>slippage validation]
+    end
+
+    CACHE --> GB
+    LIQ --> GB
+    GB --> WE
+    WE --> PF
+    PF --> SIM
+
+    SIM --> API
+    API --> SDK[SDK + Frontend<br/>route display, settings]
+    API --> EXE[Execution Router<br/>Tx Builder + Intent Solver<br/>Permit2 / Across / 1inch Fusion]
+
+    EXE -->|EVM, SVM, ...|Chains[(Destination Chains)]
+    EXE --> MON[Monitoring<br/>execution success, MEV, reorgs, PnL]
+
+    DB[(Postgres/Timescale<br/>historical routes, analytics)] --- Q
+    DB --- MON
